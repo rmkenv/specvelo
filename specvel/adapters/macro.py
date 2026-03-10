@@ -69,6 +69,9 @@ DEFAULT_SERIES = {
 class MacroAdapter:
     source_name = "macro"
 
+    # Cycle method — macro uses calendar seasons (CPI, retail sales are seasonal)
+    CYCLE_METHOD = "calendar"
+
     def __init__(self, api_key: str, series: dict = None, sleep: float = 0.2):
         if not api_key or api_key == "your_key_here":
             raise ValueError(

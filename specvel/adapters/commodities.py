@@ -51,6 +51,9 @@ class CommoditiesAdapter:
         "ZW=F":  "Wheat Futures",
     }
 
+    # Cycle method — commodities have auto-detectable supply/demand cycles
+    CYCLE_METHOD = "auto"
+
     def __init__(self, tickers: dict = None, sleep: float = 0.3):
         if not HAS_YFINANCE:
             raise ImportError("yfinance not installed. Run: pip install yfinance")

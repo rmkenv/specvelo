@@ -53,6 +53,9 @@ DEFAULT_SERIES = {
 class FixedIncomeAdapter:
     source_name = "fixed_income"
 
+    # Cycle method — rates follow the business cycle
+    CYCLE_METHOD = "business"
+
     def __init__(self, api_key: str, series: dict = None, sleep: float = 0.2):
         if not api_key or api_key == "your_key_here":
             raise ValueError(

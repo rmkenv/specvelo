@@ -61,6 +61,9 @@ class EquitiesAdapter:
         "CVX":  "Chevron",
     }
 
+    # Cycle method — equities follow the business cycle best
+    CYCLE_METHOD = "business"
+
     def __init__(self, tickers: dict = None, sleep: float = 0.3):
         if not HAS_YFINANCE:
             raise ImportError("yfinance not installed. Run: pip install yfinance")
