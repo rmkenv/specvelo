@@ -1,5 +1,5 @@
 """
-specvel/backtest.py
+specvel/tests/backtest.py
 
 Validates the spectral velocity cycle signal across 5 tests:
 
