@@ -1,0 +1,45 @@
+# configs/commodities.yaml
+# Customize your commodities universe here.
+# All symbols are Yahoo Finance futures codes.
+
+universe:
+  energy:
+    "CL=F":  "WTI Crude Oil"
+    "BZ=F":  "Brent Crude Oil"
+    "NG=F":  "Natural Gas"
+    "RB=F":  "RBOB Gasoline"
+    "HO=F":  "Heating Oil"
+
+  metals_precious:
+    "GC=F":  "Gold"
+    "SI=F":  "Silver"
+    "PA=F":  "Palladium"
+    "PL=F":  "Platinum"
+
+  metals_base:
+    "HG=F":  "Copper"
+    "ALI=F": "Aluminum"
+
+  softs:
+    "KC=F":  "Coffee"
+    "CT=F":  "Cotton"
+    "SB=F":  "Sugar"
+    "CC=F":  "Cocoa"
+    "OJ=F":  "Orange Juice"
+
+  ags:
+    "ZC=F":  "Corn Futures"
+    "ZS=F":  "Soy Futures"
+    "ZW=F":  "Wheat Futures"
+    "LBS=F": "Lumber"
+
+signal_params:
+  asset_class: "commodities"
+  lookback: 20
+  smooth: true
+  window: 7
+
+scan_params:
+  start: "2021-01-01"
+  top_n: 15
+  sleep_between_fetches: 0.3

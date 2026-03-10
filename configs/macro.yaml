@@ -1,0 +1,59 @@
+# configs/macro.yaml
+# FRED series for macro velocity scanning.
+# Free API key: https://fred.stlouisfed.org/docs/api/api_key.html
+
+fred_api_key: "your_key_here"
+
+universe:
+  inflation:
+    CPIAUCSL:  "CPI All Items"
+    CPILFESL:  "Core CPI (ex Food/Energy)"
+    PCEPI:     "PCE Inflation"
+    PCEPILFE:  "Core PCE"
+    CPIENGSL:  "CPI Energy"
+    CPIFABSL:  "CPI Food"
+
+  growth:
+    GDP:       "Nominal GDP"
+    GDPC1:     "Real GDP"
+    A191RL1Q225SBEA: "Real GDP Growth QoQ"
+    INDPRO:    "Industrial Production"
+    TCU:       "Capacity Utilization"
+    DGORDER:   "Durable Goods Orders"
+
+  employment:
+    UNRATE:    "Unemployment Rate"
+    PAYEMS:    "Nonfarm Payrolls"
+    ICSA:      "Initial Jobless Claims"
+    CCSA:      "Continued Jobless Claims"
+    MANEMP:    "Mfg Employment"
+
+  pmi_proxy:
+    # ISM charges for direct PMI — NAPM is the free FRED equivalent
+    NAPM:      "ISM Mfg PMI (NAPM series)"
+    NAPMNOI:   "ISM New Orders Index"
+    NAPMEI:    "ISM Employment Index"
+
+  consumer:
+    UMCSENT:   "UMich Consumer Sentiment"
+    RSAFS:     "Advance Retail Sales"
+    RETAILSL:  "Retail Sales"
+
+  housing:
+    HOUST:     "Housing Starts Total"
+    PERMIT:    "Building Permits"
+    CSUSHPISA: "Case-Shiller Home Price Index"
+
+  money_credit:
+    M2SL:      "M2 Money Supply"
+    TOTCI:     "Total Consumer Credit"
+
+signal_params:
+  asset_class: "macro"
+  lookback: 12     # macro is monthly — 12 months lookback
+  smooth: true
+  window: 5        # shorter window for monthly data
+
+scan_params:
+  start: "2010-01-01"
+  top_n: 15

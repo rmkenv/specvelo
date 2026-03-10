@@ -1,0 +1,46 @@
+# configs/fixed_income.yaml
+# FRED series for fixed income velocity scanning.
+# Free API key: https://fred.stlouisfed.org/docs/api/api_key.html
+
+# Set your key here OR pass it at runtime:
+#   FixedIncomeAdapter(api_key="your_key_here")
+fred_api_key: "your_key_here"
+
+universe:
+  treasuries:
+    DGS1MO:  "1M Treasury"
+    DGS3MO:  "3M Treasury"
+    DGS6MO:  "6M Treasury"
+    DGS1:    "1Y Treasury"
+    DGS2:    "2Y Treasury"
+    DGS5:    "5Y Treasury"
+    DGS10:   "10Y Treasury"
+    DGS20:   "20Y Treasury"
+    DGS30:   "30Y Treasury"
+
+  spreads:
+    T10Y2Y:  "10Y-2Y Spread"
+    T10Y3M:  "10Y-3M Spread"
+    T5YIEM:  "5Y Breakeven Inflation"
+    T10YIEM: "10Y Breakeven Inflation"
+
+  credit:
+    BAMLH0A0HYM2:   "HY OAS Spread"
+    BAMLC0A0CM:     "IG OAS Spread"
+    BAMLH0A0HYM2EY: "HY Effective Yield"
+
+  fed_mortgage:
+    DFEDTARU:     "Fed Funds Upper Target"
+    DFEDTARL:     "Fed Funds Lower Target"
+    MORTGAGE30US: "30Y Fixed Mortgage"
+    MORTGAGE15US: "15Y Fixed Mortgage"
+
+signal_params:
+  asset_class: "fixed_income"
+  lookback: 20
+  smooth: true
+  window: 7
+
+scan_params:
+  start: "2018-01-01"
+  top_n: 15

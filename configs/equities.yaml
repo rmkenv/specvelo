@@ -1,0 +1,48 @@
+# configs/equities.yaml
+# Customize your equity universe and signal parameters here.
+
+universe:
+  # Add or remove tickers freely — any yfinance-supported symbol works
+  broad_market:
+    SPY:  "S&P 500"
+    QQQ:  "Nasdaq 100"
+    IWM:  "Russell 2000"
+    DIA:  "Dow Jones"
+    VTI:  "Total Market"
+
+  sectors:
+    XLK:  "Technology"
+    XLF:  "Financials"
+    XLE:  "Energy"
+    XLV:  "Healthcare"
+    XLI:  "Industrials"
+    XLU:  "Utilities"
+    XLB:  "Materials"
+    XLP:  "Cons Staples"
+    XLRE: "Real Estate"
+    XLY:  "Cons Disc"
+    XLC:  "Comm Services"
+
+  mega_caps:
+    AAPL:  "Apple"
+    MSFT:  "Microsoft"
+    NVDA:  "Nvidia"
+    GOOGL: "Alphabet"
+    AMZN:  "Amazon"
+    META:  "Meta"
+    TSLA:  "Tesla"
+    BRK-B: "Berkshire"
+    JPM:   "JPMorgan"
+    GS:    "Goldman Sachs"
+    XOM:   "ExxonMobil"
+
+signal_params:
+  asset_class: "equities"
+  lookback: 20
+  smooth: true
+  window: 7
+
+scan_params:
+  start: "2023-01-01"
+  top_n: 20
+  sleep_between_fetches: 0.3
