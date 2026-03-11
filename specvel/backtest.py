@@ -143,6 +143,38 @@ def _get_phases(vel: pd.Series, cycle_method: str) -> pd.Series:
     return _phase_labels_auto(vel)
 
 
+# ── Phase-consistency multiplier ─────────────────────────────────────────────
+#
+# The genuine v2 differentiator: multiply the unconditional z-score by a
+# phase-consistency factor before thresholding.
+#
+# Consistent (signal agrees with phase direction):  1.25x
+# Contrary   (signal fights the phase direction):   0.70x
+# This keeps the clean rolling baseline but lets cycle phase add value.
+#
+PHASE_CONSISTENCY = {
+    ("green_up",   "LONG"):  1.25,
+    ("green_up",   "SHORT"): 0.70,
+    ("peak",       "LONG"):  0.70,
+    ("peak",       "SHORT"): 1.25,
+    ("senescence", "LONG"):  0.70,
+    ("senescence", "SHORT"): 1.25,
+    ("dormant",    "LONG"):  1.25,
+    ("dormant",    "SHORT"): 0.70,
+}
+
+
+def _phase_multiplier(phases: pd.Series, raw_z: pd.Series, threshold: float) -> pd.Series:
+    """Vectorized phase-consistency multiplier."""
+    direction = pd.Series("NEUTRAL", index=raw_z.index)
+    direction[raw_z >=  threshold] = "LONG"
+    direction[raw_z <= -threshold] = "SHORT"
+    mult = pd.Series(1.0, index=raw_z.index)
+    for (ph, sig), m in PHASE_CONSISTENCY.items():
+        mult[(phases == ph) & (direction == sig)] = m
+    return mult
+
+
 # ── Core signal builder ───────────────────────────────────────────────────────
 
 def _build_signals(
@@ -153,15 +185,14 @@ def _build_signals(
     version:       str = "v2",   # "v1" | "v2" | "naive"
 ) -> pd.DataFrame:
     """
-    version="v2"    FIX 1 — unconditional rolling zscore + phase for warnings
-    version="v1"    old phase-conditional baseline (for comparison in Test 4)
+    version="v2"    unconditional zscore × phase-consistency multiplier
+    version="v1"    phase-conditional baseline (original approach)
     version="naive" plain velocity zscore, no phase at all
     """
     vel = _velocity(normed).dropna()
     if len(vel) < MIN_HISTORY + max(FORWARD_PERIODS) + 10:
         return pd.DataFrame()
 
-    # Unconditional rolling baseline — always computed
     roll_mean = vel.rolling(ROLL, min_periods=MIN_HISTORY).mean().shift(1)
     roll_std  = vel.rolling(ROLL, min_periods=MIN_HISTORY).std().shift(1)
 
@@ -171,17 +202,14 @@ def _build_signals(
         warning = pd.Series(False, index=vel.index)
 
     elif version == "v1":
-        # Old: phase-conditional baseline
-        phases     = _get_phases(vel, cycle_method)
-        ph_mean    = pd.Series(np.nan, index=vel.index)
-        ph_std     = pd.Series(np.nan, index=vel.index)
+        phases  = _get_phases(vel, cycle_method)
+        ph_mean = pd.Series(np.nan, index=vel.index)
+        ph_std  = pd.Series(np.nan, index=vel.index)
         for ph in ["green_up", "peak", "senescence", "dormant"]:
-            mask   = (phases == ph)
-            ph_v   = vel.where(mask)
-            pm     = ph_v.rolling(ROLL, min_periods=10).mean().shift(1)
-            ps     = ph_v.rolling(ROLL, min_periods=10).std().shift(1)
-            ph_mean = ph_mean.where(~mask, pm)
-            ph_std  = ph_std.where(~mask, ps)
+            mask    = (phases == ph)
+            ph_v    = vel.where(mask)
+            ph_mean = ph_mean.where(~mask, ph_v.rolling(ROLL, min_periods=10).mean().shift(1))
+            ph_std  = ph_std.where(~mask,  ph_v.rolling(ROLL, min_periods=10).std().shift(1))
         ph_mean = ph_mean.fillna(roll_mean)
         ph_std  = ph_std.fillna(roll_std)
         zscore  = (vel - ph_mean) / ph_std.clip(lower=1e-9)
@@ -193,9 +221,12 @@ def _build_signals(
             ((phases == "green_up")   & (accel <  0.0) & (vel.rolling(5).mean() < 0))
         )
 
-    else:  # v2 — FIX 1: unconditional zscore, phases for warnings only
-        zscore = (vel - roll_mean) / roll_std.clip(lower=1e-9)
+    else:
+        # v2: raw zscore × phase-consistency multiplier
         phases = _get_phases(vel, cycle_method)
+        raw_z  = (vel - roll_mean) / roll_std.clip(lower=1e-9)
+        mult   = _phase_multiplier(phases, raw_z, threshold)
+        zscore = (raw_z * mult).clip(-6, 6)
         accel  = vel.diff()
         warning = (
             ((phases == "peak")       & (accel < -0.01)) |
@@ -204,15 +235,19 @@ def _build_signals(
             ((phases == "green_up")   & (accel <  0.0) & (vel.rolling(5).mean() < 0))
         )
 
-    # ── FIX 2: per-asset-class threshold applied here ─────────────────────────
+    # Per-asset-class threshold
     signal = pd.Series("NEUTRAL", index=vel.index)
     signal[zscore >=  threshold] = "LONG"
     signal[zscore <= -threshold] = "SHORT"
 
-    # ── FIX 3: conviction weight = |zscore| / 3, capped at 1.0 ───────────────
-    weight = (zscore.abs() / 3.0).clip(upper=1.0)
-    # Signed weight: positive for LONG, negative for SHORT, 0 for NEUTRAL
-    signed_weight = weight * zscore.apply(lambda z: 1 if z >= threshold else (-1 if z <= -threshold else 0))
+    # Stepped conviction weighting: 0.5x for threshold→1.5σ, 1.0x above 1.5σ
+    # Flat mid-range weight because data shows moderate z-scores carry most return
+    abs_z         = zscore.abs()
+    weight        = pd.Series(0.0, index=zscore.index)
+    in_sig        = (signal != "NEUTRAL")
+    weight[in_sig & (abs_z <  1.5)] = 0.5
+    weight[in_sig & (abs_z >= 1.5)] = 1.0
+    signed_weight = weight * signal.map({"LONG": 1, "SHORT": -1, "NEUTRAL": 0})
 
     df = pd.DataFrame({
         "date":            vel.index,
