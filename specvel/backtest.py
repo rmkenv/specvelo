@@ -71,7 +71,7 @@ NBER_RECESSIONS = [
     ("2020-02-01", "2020-04-30"),
 ]
 
-FORWARD_PERIODS = [5, 10, 20, 60]
+FORWARD_PERIODS = [5, 10, 20, 30, 45, 60, 90]
 MIN_HISTORY     = 60
 ROLL            = 120
 
