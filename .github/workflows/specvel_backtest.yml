@@ -1,29 +1,18 @@
 name: SpecVel Backtest Validation
 
 on:
-  # Run manually from GitHub Actions tab
   workflow_dispatch:
     inputs:
       include_macro:
-        description: 'Include fixed income and macro tests (requires FRED_API_KEY secret)'
+        description: 'Include fixed income and macro (requires FRED_API_KEY secret)'
         required: false
         default: 'false'
         type: choice
         options:
           - 'false'
           - 'true'
-
-  # Run automatically every Sunday at midnight UTC
   schedule:
     - cron: '0 0 * * 0'
-
-  # Run on push to main (optional — remove if too noisy)
-  push:
-    branches: [main]
-    paths:
-      - 'specvel/backtest.py'
-      - 'specvel/cycle.py'
-      - 'specvel/core.py'
 
 jobs:
   backtest:
@@ -39,88 +28,46 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -q
+        run: pip install yfinance pandas numpy scipy scikit-learn ruptures requests -q
 
-      - name: Run backtest — equities + commodities
-        if: ${{ github.event.inputs.include_macro != 'true' }}
+      - name: Run backtest
         env:
           PYTHONPATH: ${{ github.workspace }}/specvel
         run: |
           mkdir -p results
-          python specvel/backtest.py --save results/
+          if [ "${{ github.event.inputs.include_macro }}" == "true" ] && [ -n "${{ secrets.FRED_API_KEY }}" ]; then
+            python specvel/backtest.py --fred_key "${{ secrets.FRED_API_KEY }}" --include_macro --save results/
+          else
+            python specvel/backtest.py --save results/
+          fi
 
-      - name: Run backtest — all adapters including macro
-        if: ${{ github.event.inputs.include_macro == 'true' && secrets.FRED_API_KEY != '' }}
-        env:
-          PYTHONPATH: ${{ github.workspace }}/specvel
+      - name: Show scorecard in summary
+        if: always()
         run: |
-          mkdir -p results
-          python specvel/backtest.py \
-            --fred_key "${{ secrets.FRED_API_KEY }}" \
-            --include_macro \
-            --save results/
+          echo "## SpecVel Backtest Results" >> $GITHUB_STEP_SUMMARY
+          echo "Run: ${{ github.run_number }} | Triggered: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          for f in results/*.csv; do
+            [ -f "$f" ] || continue
+            echo "### $(basename $f)" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            python3 -c "import pandas as pd; print(pd.read_csv('$f').to_string(index=False))" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          done
 
-      - name: Upload results as artifact
+      - name: Upload results
         uses: actions/upload-artifact@v4
         with:
           name: backtest-results-${{ github.run_number }}
           path: results/
           retention-days: 90
 
-      - name: Post scorecard summary to job
-        if: always()
-        run: |
-          echo "## SpecVel Backtest Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Run:** ${{ github.run_number }}  |  **Triggered by:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          if [ -f results/backtest_t2_ic.csv ]; then
-            echo "### Information Coefficient (IC)" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            python3 -c "
-          import pandas as pd
-          df = pd.read_csv('results/backtest_t2_ic.csv')
-          print(df[['label','ic','icir','status']].to_string(index=False))
-          print()
-          print(f'Average IC:   {df[\"ic\"].mean():+.4f}')
-          print(f'Average ICIR: {df[\"icir\"].mean():+.4f}')
-            " >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -f results/backtest_t4_vs_naive.csv ]; then
-            echo "### Specvel vs Naive Momentum" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            python3 -c "
-          import pandas as pd
-          df = pd.read_csv('results/backtest_t4_vs_naive.csv')
-          print(df[['label','specvel_ls','naive_ls','delta','status']].to_string(index=False))
-          print()
-          print(f'Average delta: {df[\"delta\"].mean():+.2f}%')
-          print(f'Specvel better in: {(df[\"delta\"] > 0).mean():.0%} of tickers')
-            " >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -f results/backtest_t5_stability.csv ]; then
-            echo "### Stability Across Regimes" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            python3 -c "
-          import pandas as pd
-          df = pd.read_csv('results/backtest_t5_stability.csv')
-          print(df[['label','n_positive']].to_string(index=False))
-          print()
-          print(f'Avg positive periods: {df[\"n_positive\"].mean():.1f}/5')
-            " >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Commit results to repo
+      - name: Commit results (scheduled runs only)
         if: github.event_name == 'schedule'
         run: |
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add results/
-          git diff --staged --quiet || git commit -m "backtest results [skip ci] $(date +'%Y-%m-%d')"
+          git diff --staged --quiet || git commit -m "backtest results $(date +'%Y-%m-%d') [skip ci]"
           git push
