@@ -81,7 +81,23 @@ THRESHOLDS = {
     "commodities": 1.25,
     "fixed_income": 1.00,
     "macro":       0.50,
+    "fx":          0.75,   # FX majors — same sensitivity as equities
     "default":     0.75,
+}
+
+# FX tickers (all 6 USD major pairs)
+FX_TICKERS = {
+    "EURUSD": "EUR/USD",
+    "GBPUSD": "GBP/USD",
+    "USDJPY": "USD/JPY",
+    "USDCHF": "USD/CHF",
+    "USDCAD": "USD/CAD",
+    "AUDUSD": "AUD/USD",
+}
+FX_TICKERS_FAST = {
+    "EURUSD": "EUR/USD",
+    "USDJPY": "USD/JPY",
+    "GBPUSD": "GBP/USD",
 }
 
 
@@ -538,6 +554,87 @@ def test5_stability(adapter, tickers, cycle_method, asset_class="default", fwd_c
     return df_out
 
 
+
+
+# ── Test FX — dual direction ───────────────────────────────────────────────────
+
+def test_fx(adapter, tickers, start, end, fwd_col="fwd_20d"):
+    """
+    FX-specific test reporting both directions:
+      LOCAL_STRENGTH — LONG means foreign currency rising vs USD
+      USD_STRENGTH   — LONG means USD rising vs foreign currency (inverse)
+    Both use the same velocity signal; USD_strength just inverts the raw series.
+    """
+    threshold = THRESHOLDS["fx"]
+    fwd_cols  = [f"fwd_{fp}d" for fp in FORWARD_PERIODS]
+
+    print(f"\n{'─'*70}")
+    print(f"  FX TEST — Dual Direction  threshold=±{threshold}  {start}→{end}")
+    print(f"  LOCAL STRENGTH  (LONG = foreign currency rising vs USD)")
+    print(f"{'─'*70}")
+
+    rows = []
+    for ticker, label in tickers.items():
+        for direction in ["local", "usd"]:
+            try:
+                if direction == "local":
+                    raw   = adapter.fetch(ticker, start, end)
+                    dlabel = adapter.label_local(ticker)
+                else:
+                    raw   = adapter.fetch_usd_strength(ticker, start, end)
+                    dlabel = adapter.label_usd(ticker)
+
+                normed = adapter.normalize(raw)
+                df     = _build_signals(normed, raw, "auto", threshold, version="v2")
+                if df.empty:
+                    continue
+
+                if direction == "usd" and fwd_cols[0] in df.columns:
+                    print(f"\n  USD STRENGTH  (LONG = USD rising vs foreign currency)")
+                    print(f"  {'─'*60}")
+
+                n_long    = (df["signal"] == "LONG").sum()
+                n_short   = (df["signal"] == "SHORT").sum()
+                n_neutral = (df["signal"] == "NEUTRAL").sum()
+
+                print(f"\n  {dlabel:<26}  "
+                      f"[L:{n_long} S:{n_short} N:{n_neutral}]")
+                print(f"  {'─'*60}")
+
+                fwd_header = "  ".join(f"{c:>10}" for c in fwd_cols)
+                print(f"  {'SIGNAL':<10} {'N':>5}  {fwd_header}")
+
+                for sig in ["LONG", "NEUTRAL", "SHORT"]:
+                    sub   = df[df["signal"] == sig]
+                    means = [sub[c].mean()*100 if len(sub) > 0 else float("nan")
+                             for c in fwd_cols]
+                    vals  = "  ".join(
+                        f"{m:>+9.2f}%" if m == m else f"{'n/a':>10}"
+                        for m in means
+                    )
+                    print(f"  {sig:<10} {len(sub):>5}  {vals}")
+
+                print(f"  {'─'*60}")
+                ls_vals = {}
+                for c in fwd_cols:
+                    ls = _ls_binary(df, c)
+                    ls_vals[c] = ls
+                    flag = "✓" if ls > 0.3 else ("✗" if ls < 0 else "~")
+                    print(f"  L/S {c}: {ls:>+6.2f}%  {flag}")
+
+                rows.append({
+                    "ticker":    ticker,
+                    "direction": direction,
+                    "label":     dlabel,
+                    "n_obs":     len(df),
+                    **{f"ls_{c}": ls_vals[c] for c in fwd_cols},
+                })
+
+            except Exception as e:
+                print(f"  {ticker} ({direction}) — error: {e}")
+
+    return pd.DataFrame(rows)
+
 # ── Scorecard ─────────────────────────────────────────────────────────────────
 
 def print_scorecard(t1, t2, t3, t4, t5):
@@ -602,7 +699,8 @@ def print_scorecard(t1, t2, t3, t4, t5):
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-def run_all_tests(fred_key=None, include_macro=False, save_results=None, fast=False):
+def run_all_tests(fred_key=None, include_macro=False, include_fx=False,
+                  save_results=None, fast=False):
     from adapters.equities    import EquitiesAdapter
     from adapters.commodities import CommoditiesAdapter
 
@@ -621,7 +719,7 @@ def run_all_tests(fred_key=None, include_macro=False, save_results=None, fast=Fa
         (CommoditiesAdapter(), cm_t, "auto",     "commodities", "COMMODITIES"),
     ]
 
-    if include_macro and fred_key:
+    if fred_key and include_macro:
         from adapters.fixed_income import FixedIncomeAdapter
         from adapters.macro        import MacroAdapter
         fi = ({"DGS2":"2Y Tsy","DGS10":"10Y Tsy"} if fast else
@@ -657,17 +755,28 @@ def run_all_tests(fred_key=None, include_macro=False, save_results=None, fast=Fa
 
     print_scorecard(T1, T2, T3, T4, T5)
 
+    # ── FX module — dual direction, separate output ───────────────────────────
+    T6 = pd.DataFrame()
+    if include_fx and fred_key:
+        from adapters.fx import FXAdapter
+        fx_adapter = FXAdapter(api_key=fred_key)
+        fx_t       = FX_TICKERS_FAST if fast else FX_TICKERS
+        print(f"\n\n{'#'*70}\n#  FX — USD vs MAJORS  (threshold ±{THRESHOLDS['fx']})\n{'#'*70}")
+        T6 = test_fx(fx_adapter, fx_t, START, END)
+        if not T6.empty:
+            T6["adapter"] = "FX"
+
     if save_results:
         os.makedirs(save_results, exist_ok=True)
         for lbl, df in [("t1_signal_returns",T1),("t2_ic",T2),
                         ("t3_transitions",T3),("t4_comparison",T4),
-                        ("t5_stability",T5)]:
+                        ("t5_stability",T5),("t6_fx",T6)]:
             if not df.empty:
                 path = os.path.join(save_results, f"backtest_{lbl}.csv")
                 df.to_csv(path, index=False)
                 print(f"Saved {path}")
 
-    return T1, T2, T3, T4, T5
+    return T1, T2, T3, T4, T5, T6
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -677,8 +786,9 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--fred_key",      type=str,  default=None)
     p.add_argument("--include_macro", action="store_true")
+    p.add_argument("--include_fx",    action="store_true")
     p.add_argument("--save",          type=str,  default="results/")
     p.add_argument("--fast",          action="store_true")
     a = p.parse_args()
     run_all_tests(fred_key=a.fred_key, include_macro=a.include_macro,
-                  save_results=a.save, fast=a.fast)
+                  include_fx=a.include_fx, save_results=a.save, fast=a.fast)
