@@ -757,14 +757,26 @@ def run_all_tests(fred_key=None, include_macro=False, include_fx=False,
 
     # ── FX module — dual direction, separate output ───────────────────────────
     T6 = pd.DataFrame()
+    print(f"\n[DEBUG] include_fx={include_fx}  fred_key={'SET' if fred_key else 'NONE'}")
     if include_fx and fred_key:
-        from adapters.fx import FXAdapter
-        fx_adapter = FXAdapter(api_key=fred_key)
-        fx_t       = FX_TICKERS_FAST if fast else FX_TICKERS
-        print(f"\n\n{'#'*70}\n#  FX — USD vs MAJORS  (threshold ±{THRESHOLDS['fx']})\n{'#'*70}")
-        T6 = test_fx(fx_adapter, fx_t, START, END)
-        if not T6.empty:
-            T6["adapter"] = "FX"
+        print("[DEBUG] Entering FX block")
+        try:
+            from adapters.fx import FXAdapter
+            print("[DEBUG] FXAdapter imported OK")
+            fx_adapter = FXAdapter(api_key=fred_key)
+            fx_t       = FX_TICKERS_FAST if fast else FX_TICKERS
+            print(f"[DEBUG] Running test_fx on {list(fx_t.keys())}")
+            print(f"\n\n{'#'*70}\n#  FX — USD vs MAJORS  (threshold +-{THRESHOLDS['fx']})\n{'#'*70}")
+            T6 = test_fx(fx_adapter, fx_t, START, END)
+            print(f"[DEBUG] test_fx returned {len(T6)} rows")
+            if not T6.empty:
+                T6["adapter"] = "FX"
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] FX module failed: {e}")
+            traceback.print_exc()
+    elif include_fx and not fred_key:
+        print("[ERROR] include_fx=True but fred_key is None — T6 skipped")
 
     if save_results:
         os.makedirs(save_results, exist_ok=True)
