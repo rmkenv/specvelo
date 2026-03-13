@@ -100,6 +100,22 @@ FX_TICKERS_FAST = {
     "GBPUSD": "GBP/USD",
 }
 
+# Geopolitical module — IMF + World Bank (no API key, free)
+GEO_COMMODITY_SERIES_FAST = {
+    "POILDUB": "Dubai Crude ($/bbl)",
+    "PFERT":   "Fertilizer Index (2016=100)",
+    "PWHEAMT": "Wheat ($/mt)",
+}
+GEO_COMMODITY_SERIES = {
+    "POILDUB": "Dubai Crude ($/bbl)",
+    "PNGASEU": "EU Natural Gas ($/MMBtu)",
+    "PFERT":   "Fertilizer Index (2016=100)",
+    "PWHEAMT": "Wheat ($/mt)",
+    "PFOOD":   "Food Price Index (2016=100)",
+    "PCOPP":   "Copper ($/mt)",
+}
+THRESHOLDS["geo_commodity"] = 0.50   # annual data, lower threshold
+
 
 # ── Velocity ──────────────────────────────────────────────────────────────────
 
@@ -699,7 +715,7 @@ def print_scorecard(t1, t2, t3, t4, t5):
 
 # ── Runner ────────────────────────────────────────────────────────────────────
 
-def run_all_tests(fred_key=None, include_macro=False, include_fx=False,
+def run_all_tests(fred_key=None, include_macro=False, include_fx=False, include_geo=False,
                   save_results=None, fast=False):
     from adapters.equities    import EquitiesAdapter
     from adapters.commodities import CommoditiesAdapter
@@ -757,18 +773,13 @@ def run_all_tests(fred_key=None, include_macro=False, include_fx=False,
 
     # ── FX module — dual direction, separate output ───────────────────────────
     T6 = pd.DataFrame()
-    print(f"\n[DEBUG] include_fx={include_fx}  fred_key={'SET' if fred_key else 'NONE'}")
     if include_fx and fred_key:
-        print("[DEBUG] Entering FX block")
         try:
             from adapters.fx import FXAdapter
-            print("[DEBUG] FXAdapter imported OK")
             fx_adapter = FXAdapter(api_key=fred_key)
             fx_t       = FX_TICKERS_FAST if fast else FX_TICKERS
-            print(f"[DEBUG] Running test_fx on {list(fx_t.keys())}")
             print(f"\n\n{'#'*70}\n#  FX — USD vs MAJORS  (threshold +-{THRESHOLDS['fx']})\n{'#'*70}")
             T6 = test_fx(fx_adapter, fx_t, START, END)
-            print(f"[DEBUG] test_fx returned {len(T6)} rows")
             if not T6.empty:
                 T6["adapter"] = "FX"
         except Exception as e:
@@ -776,19 +787,55 @@ def run_all_tests(fred_key=None, include_macro=False, include_fx=False,
             print(f"[ERROR] FX module failed: {e}")
             traceback.print_exc()
     elif include_fx and not fred_key:
-        print("[ERROR] include_fx=True but fred_key is None — T6 skipped")
+        print("  WARNING: include_fx=True but no FRED key — FX skipped")
+
+    # ── Geopolitical regime filter — IMF + World Bank, no key needed ────────
+    T7 = pd.DataFrame()
+    T7_index = pd.DataFrame()
+    T7_breakdown = pd.DataFrame()
+    if include_geo:
+        try:
+            from geopolitical import GeopoliticalRegimeFilter, REGIME_MULTIPLIERS
+            grf    = GeopoliticalRegimeFilter(verbose=True)
+            GEO_START = "2000-01-01"
+            report = grf.run_report(start=GEO_START, end=END)
+            T7_index     = report["index_df"]
+            T7_breakdown = report.get("country_breakdown", pd.DataFrame())
+
+            # Build T7: per-year regime summary table
+            annual_z  = T7_index["composite_zscore"].resample("YE").mean().dropna()
+            T7 = pd.DataFrame({
+                "year":    annual_z.index.year,
+                "composite_zscore": annual_z.values,
+                "regime":  [GeopoliticalRegimeFilter._zscore_to_regime(z) for z in annual_z.values],
+            })
+
+            # Print multiplier implications for commodity signals
+            print("\n  Regime multipliers for WHEAT (ZW=F) and WTI (CL=F):")
+            regime_now = report["current_regime"]
+            for ticker in ["ZW=F", "CL=F", "SI=F", "ZC=F"]:
+                mult = grf.get_multiplier(regime_now, ticker)
+                print(f"    {ticker:<8} {mult:.2f}x  (regime: {regime_now})")
+
+            if not T7.empty:
+                T7["adapter"] = "GEO"
+        except Exception as e:
+            import traceback
+            print(f"[ERROR] Geopolitical module failed: {e}")
+            traceback.print_exc()
 
     if save_results:
         os.makedirs(save_results, exist_ok=True)
         for lbl, df in [("t1_signal_returns",T1),("t2_ic",T2),
                         ("t3_transitions",T3),("t4_comparison",T4),
-                        ("t5_stability",T5),("t6_fx",T6)]:
+                        ("t5_stability",T5),("t6_fx",T6),
+                        ("t7_geo_regime",T7),("t7_geo_breakdown",T7_breakdown)]:
             if not df.empty:
                 path = os.path.join(save_results, f"backtest_{lbl}.csv")
                 df.to_csv(path, index=False)
                 print(f"Saved {path}")
 
-    return T1, T2, T3, T4, T5, T6
+    return T1, T2, T3, T4, T5, T6, T7, T7_index
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -799,8 +846,10 @@ if __name__ == "__main__":
     p.add_argument("--fred_key",      type=str,  default=None)
     p.add_argument("--include_macro", action="store_true")
     p.add_argument("--include_fx",    action="store_true")
+    p.add_argument("--include_geo",   action="store_true")
     p.add_argument("--save",          type=str,  default="results/")
     p.add_argument("--fast",          action="store_true")
     a = p.parse_args()
     run_all_tests(fred_key=a.fred_key, include_macro=a.include_macro,
-                  include_fx=a.include_fx, save_results=a.save, fast=a.fast)
+                  include_fx=a.include_fx, include_geo=a.include_geo,
+                  save_results=a.save, fast=a.fast)
